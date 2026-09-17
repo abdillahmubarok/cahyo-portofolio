@@ -1,4 +1,5 @@
 import 'server-only'
+import { cache } from 'react'
 import { createClient, createPublicClient } from '@/lib/supabase/server'
 import type { Project, ProjectWithCover, ProjectWithMedia, ProjectMedia, SiteSettings, ContactMessage, Service } from '@/lib/types'
 
@@ -161,10 +162,10 @@ export async function getPublishedProjectSlugs(): Promise<string[]> {
 }
 
 // ========================
-// Site Settings
+// Site Settings (cache-deduplicated per request)
 // ========================
 
-export async function getSiteSettings(): Promise<SiteSettings | null> {
+export const getSiteSettings = cache(async (): Promise<SiteSettings | null> => {
   const supabase = createPublicClient()
   const { data } = await supabase
     .from('site_settings')
@@ -173,6 +174,33 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
     .single()
 
   return data
+})
+
+// ========================
+// SPA Portfolio Query
+// ========================
+
+export async function getPublishedProjectsWithMedia(): Promise<ProjectWithMedia[]> {
+  const supabase = createPublicClient()
+  const { data, error } = await supabase
+    .from('projects')
+    .select('*, project_media(*)')
+    .eq('published', true)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('getPublishedProjectsWithMedia error:', error)
+    return []
+  }
+
+  return (data ?? []).map((p: ProjectWithMedia) => ({
+    ...p,
+    project_media: (p.project_media ?? []).sort((a: ProjectMedia, b: ProjectMedia) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    }),
+  }))
 }
 
 // ========================

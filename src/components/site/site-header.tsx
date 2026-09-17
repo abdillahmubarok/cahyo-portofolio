@@ -2,15 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
-  { href: '/projects', label: 'Proyek' },
-  { href: '/about', label: 'Tentang' },
-  { href: '/services', label: 'Layanan' },
-  { href: '/contact', label: 'Kontak' },
+  { href: '#projects', label: 'Proyek' },
+  { href: '#about', label: 'Tentang' },
+  { href: '#services', label: 'Layanan' },
+  { href: '#contact', label: 'Kontak' },
 ]
 
 type SiteHeaderProps = {
@@ -20,6 +20,53 @@ type SiteHeaderProps = {
 export function SiteHeader({ studioName }: SiteHeaderProps) {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [activeSection, setActiveSection] = useState<string | null>(null)
+
+  // Track active section via IntersectionObserver
+  useEffect(() => {
+    if (pathname !== '/') return
+
+    const sectionIds = navLinks.map(l => l.href.replace('#', ''))
+    const observers: IntersectionObserver[] = []
+
+    sectionIds.forEach(id => {
+      const el = document.getElementById(id)
+      if (!el) return
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              setActiveSection(`#${id}`)
+            }
+          })
+        },
+        { rootMargin: '-20% 0px -60% 0px', threshold: 0 }
+      )
+      observer.observe(el)
+      observers.push(observer)
+    })
+
+    return () => observers.forEach(o => o.disconnect())
+  }, [pathname])
+
+  const handleNavClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    // Only smooth-scroll if we're on the homepage
+    if (pathname === '/') {
+      e.preventDefault()
+      const id = href.replace('#', '')
+      const el = document.getElementById(id)
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Update URL hash without scroll jump
+        window.history.pushState(null, '', href)
+      }
+      setMobileOpen(false)
+    }
+    // If not on homepage, the Link will navigate to /#section which triggers redirect
+  }, [pathname])
+
+  const isHomepage = pathname === '/'
 
   return (
     <>
@@ -35,17 +82,18 @@ export function SiteHeader({ studioName }: SiteHeaderProps) {
           {/* Desktop Navigation */}
           <nav className="hidden md:flex items-center gap-8" aria-label="Navigasi utama">
             {navLinks.map(link => (
-              <Link
+              <a
                 key={link.href}
-                href={link.href}
+                href={isHomepage ? link.href : `/${link.href}`}
+                onClick={(e) => handleNavClick(e, link.href)}
                 className={`text-[13px] tracking-[0.1em] uppercase transition-colors hover:text-foreground ${
-                  pathname === link.href || pathname.startsWith(link.href + '/')
+                  activeSection === link.href && isHomepage
                     ? 'text-foreground'
                     : 'text-muted'
                 }`}
               >
                 {link.label}
-              </Link>
+              </a>
             ))}
           </nav>
 
@@ -80,15 +128,15 @@ export function SiteHeader({ studioName }: SiteHeaderProps) {
                   exit={{ opacity: 0, y: 10 }}
                   transition={{ delay: i * 0.05 + 0.1 }}
                 >
-                  <Link
-                    href={link.href}
-                    onClick={() => setMobileOpen(false)}
+                  <a
+                    href={isHomepage ? link.href : `/${link.href}`}
+                    onClick={(e) => handleNavClick(e, link.href)}
                     className={`heading-lg transition-colors ${
-                      pathname === link.href ? 'text-foreground' : 'text-muted'
+                      activeSection === link.href && isHomepage ? 'text-foreground' : 'text-muted'
                     }`}
                   >
                     {link.label}
-                  </Link>
+                  </a>
                 </motion.div>
               ))}
             </nav>

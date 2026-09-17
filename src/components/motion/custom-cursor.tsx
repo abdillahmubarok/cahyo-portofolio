@@ -1,7 +1,9 @@
 'use client'
 
 import { motion, useMotionValue, useSpring } from 'motion/react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+
+// ─── Pointer capability detection (hydration-safe) ───
 
 function subscribePointer(callback: () => void) {
   const mq = window.matchMedia('(pointer: fine)')
@@ -17,6 +19,8 @@ function getServerPointerSnapshot() {
   return false
 }
 
+// ─── Component ───
+
 export function CustomCursor() {
   const hasFinePointer = useSyncExternalStore(
     subscribePointer,
@@ -24,60 +28,85 @@ export function CustomCursor() {
     getServerPointerSnapshot
   )
 
+  // Position tracked entirely via MotionValues — no React state, no re-renders
   const cursorX = useMotionValue(-100)
   const cursorY = useMotionValue(-100)
   const springX = useSpring(cursorX, { stiffness: 500, damping: 40 })
   const springY = useSpring(cursorY, { stiffness: 500, damping: 40 })
 
+  // Hover state — only boolean, set via event delegation
   const [isHovering, setIsHovering] = useState(false)
-  const [isVisible, setIsVisible] = useState(false)
+
+  // Visibility tracked via ref to avoid useEffect re-runs
+  const isVisibleRef = useRef(false)
+  const [, forceVisibility] = useState(0)
 
   useEffect(() => {
     if (!hasFinePointer) return
 
+    // One-time reduced motion check at init
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     if (prefersReduced) return
+
+    let visible = false
 
     const handleMove = (e: MouseEvent) => {
       cursorX.set(e.clientX)
       cursorY.set(e.clientY)
-      if (!isVisible) setIsVisible(true)
+      if (!visible) {
+        visible = true
+        isVisibleRef.current = true
+        forceVisibility(v => v + 1)
+      }
     }
 
-    const handleEnter = () => setIsVisible(true)
-    const handleLeave = () => setIsVisible(false)
+    const handleEnter = () => {
+      visible = true
+      isVisibleRef.current = true
+      forceVisibility(v => v + 1)
+    }
 
-    // Detect hoverable elements
-    const handleOverProject = () => setIsHovering(true)
-    const handleOutProject = () => setIsHovering(false)
+    const handleLeave = () => {
+      visible = false
+      isVisibleRef.current = false
+      forceVisibility(v => v + 1)
+    }
 
-    document.addEventListener('mousemove', handleMove)
+    // ─── Event delegation for hover detection ───
+    // Single mouseover/mouseout listener on document, no MutationObserver
+    const handleMouseOver = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (target.closest?.('[data-cursor-hover]')) {
+        setIsHovering(true)
+      }
+    }
+
+    const handleMouseOut = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      const related = e.relatedTarget as HTMLElement | null
+      // Only unhover if we've actually left the [data-cursor-hover] boundary
+      if (
+        target.closest?.('[data-cursor-hover]') &&
+        (!related || !related.closest?.('[data-cursor-hover]'))
+      ) {
+        setIsHovering(false)
+      }
+    }
+
+    document.addEventListener('mousemove', handleMove, { passive: true })
     document.addEventListener('mouseenter', handleEnter)
     document.addEventListener('mouseleave', handleLeave)
-
-    // Use MutationObserver to handle dynamic project cards
-    const setupListeners = () => {
-      document.querySelectorAll('[data-cursor-hover]').forEach(el => {
-        el.addEventListener('mouseenter', handleOverProject)
-        el.addEventListener('mouseleave', handleOutProject)
-      })
-    }
-    setupListeners()
-
-    const observer = new MutationObserver(setupListeners)
-    observer.observe(document.body, { childList: true, subtree: true })
+    document.addEventListener('mouseover', handleMouseOver, { passive: true })
+    document.addEventListener('mouseout', handleMouseOut, { passive: true })
 
     return () => {
       document.removeEventListener('mousemove', handleMove)
       document.removeEventListener('mouseenter', handleEnter)
       document.removeEventListener('mouseleave', handleLeave)
-      document.querySelectorAll('[data-cursor-hover]').forEach(el => {
-        el.removeEventListener('mouseenter', handleOverProject)
-        el.removeEventListener('mouseleave', handleOutProject)
-      })
-      observer.disconnect()
+      document.removeEventListener('mouseover', handleMouseOver)
+      document.removeEventListener('mouseout', handleMouseOut)
     }
-  }, [hasFinePointer, cursorX, cursorY, isVisible])
+  }, [hasFinePointer, cursorX, cursorY])
 
   if (!hasFinePointer) return null
 
@@ -88,7 +117,7 @@ export function CustomCursor() {
       animate={{
         width: isHovering ? 80 : 8,
         height: isHovering ? 80 : 8,
-        opacity: isVisible ? 1 : 0,
+        opacity: isVisibleRef.current ? 1 : 0,
         translateX: isHovering ? -40 : -4,
         translateY: isHovering ? -40 : -4,
       }}

@@ -288,6 +288,7 @@ body {
   left: 0;
   z-index: 9999;
   mix-blend-mode: difference;
+  will-change: transform;
 }
 
 /* Image reveal */

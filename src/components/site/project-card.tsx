@@ -1,27 +1,43 @@
 'use client'
 
-import Link from 'next/link'
 import Image from 'next/image'
 import { PointerParallax } from '@/components/motion/pointer-parallax'
-import type { ProjectWithCover } from '@/lib/types'
+import type { ProjectWithMedia, ProjectWithCover, ProjectMedia } from '@/lib/types'
 import { getStorageUrl } from '@/lib/utils'
 
 type ProjectCardProps = {
-  project: ProjectWithCover
+  project: ProjectWithMedia | ProjectWithCover
   index?: number
+  onOpenProject?: (slug: string) => void
 }
 
-export function ProjectCard({ project, index = 0 }: ProjectCardProps) {
-  const cover = project.cover
+/**
+ * Derives the cover image from either ProjectWithCover or ProjectWithMedia.
+ */
+function getCover(project: ProjectWithMedia | ProjectWithCover): ProjectMedia | null {
+  if ('cover' in project) return project.cover
+  if ('project_media' in project && project.project_media?.length > 0) {
+    return project.project_media.find(m => m.is_cover) ?? project.project_media[0]
+  }
+  return null
+}
+
+export function ProjectCard({ project, index = 0, onOpenProject }: ProjectCardProps) {
+  const cover = getCover(project)
   const imageUrl = cover ? getStorageUrl(cover.storage_path) : null
 
+  const handleClick = () => {
+    onOpenProject?.(project.slug)
+  }
+
   return (
-    <Link
-      href={`/projects/${project.slug}`}
-      className="masonry-item block group"
+    <button
+      type="button"
+      onClick={handleClick}
+      className="masonry-item block group text-left w-full"
       data-cursor-hover
     >
-      <PointerParallax maxTranslate={6} maxRotate={0.8} scale={1.02}>
+      <PointerParallax maxTranslate={6} maxRotate={0.3} hoverScale={1.015}>
         <div className="relative overflow-hidden bg-surface">
           {imageUrl && cover ? (
             <Image
@@ -29,10 +45,9 @@ export function ProjectCard({ project, index = 0 }: ProjectCardProps) {
               alt={cover.alt_text || project.title}
               width={cover.width || 800}
               height={cover.height || 600}
-              className="w-full h-auto block transition-transform duration-700 group-hover:scale-[1.03]"
+              className="w-full h-auto block"
               sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
-              loading={index < 3 ? 'eager' : 'lazy'}
-              priority={index < 2}
+              loading="lazy"
             />
           ) : (
             <div className="aspect-[4/3] bg-surface flex items-center justify-center">
@@ -68,6 +83,6 @@ export function ProjectCard({ project, index = 0 }: ProjectCardProps) {
         </div>
         <h3 className="text-base font-light tracking-tight">{project.title}</h3>
       </div>
-    </Link>
+    </button>
   )
 }
