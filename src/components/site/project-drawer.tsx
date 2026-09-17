@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Drawer } from '@base-ui/react/drawer'
 import { X } from 'lucide-react'
 import { useMediaQuery } from '@/components/motion/use-media-query'
@@ -13,6 +13,7 @@ type ProjectDrawerProps = {
   selectedSlug: string | null
   onClose: () => void
   onSelectProject: (slug: string) => void
+  returnFocusRef: RefObject<HTMLElement | null>
 }
 
 /**
@@ -29,10 +30,12 @@ export function ProjectDrawer({
   selectedSlug,
   onClose,
   onSelectProject,
+  returnFocusRef,
 }: ProjectDrawerProps) {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const isOpen = selectedSlug !== null
   const contentRef = useRef<HTMLDivElement>(null)
+  const [snapPoint, setSnapPoint] = useState<Drawer.Root.SnapPoint | null>(0.48)
 
   // Find the selected project
   const selectedProject = useMemo(() => {
@@ -76,21 +79,32 @@ export function ProjectDrawer({
     <Drawer.Root
       open={isOpen}
       onOpenChange={handleOpenChange}
+      onOpenChangeComplete={(open) => { if (!open) setSnapPoint(0.48) }}
+      modal
       swipeDirection={isDesktop ? 'right' : 'down'}
       snapPoints={isDesktop ? undefined : [0.48, 0.94]}
+      snapPoint={isDesktop ? undefined : snapPoint}
+      onSnapPointChange={setSnapPoint}
     >
       <Drawer.Portal>
         <Drawer.Backdrop className="drawer-backdrop" />
         <Drawer.Viewport className="drawer-viewport">
-          <Drawer.Popup className="drawer-popup">
+          <Drawer.Popup className="drawer-popup" finalFocus={returnFocusRef}>
             {/* Mobile drag handle */}
-            {!isDesktop && <div className="drawer-handle" />}
+            {!isDesktop && (
+              <div className="drawer-handle">
+                <button type="button" data-base-ui-swipe-ignore
+                  aria-label={snapPoint === 0.94 ? 'Perkecil panel proyek' : 'Perluas panel proyek'}
+                  aria-expanded={snapPoint === 0.94}
+                  onClick={() => setSnapPoint(snapPoint === 0.94 ? 0.48 : 0.94)} />
+              </div>
+            )}
 
             <Drawer.Close className="drawer-close-btn" aria-label="Tutup proyek">
               <X size={18} />
             </Drawer.Close>
 
-            <Drawer.Content className="drawer-content" ref={contentRef}>
+            <Drawer.Content className="drawer-content" ref={contentRef} data-base-ui-swipe-ignore tabIndex={0} aria-label="Konten proyek">
               {selectedProject && (
                 <>
                   <Drawer.Title className="sr-only">

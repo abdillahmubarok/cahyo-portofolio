@@ -22,6 +22,7 @@ export function ProjectFilter({ categories, activeCategory, onCategoryChange }: 
           <button
             key={cat}
             type="button"
+            aria-pressed={isActive}
             onClick={() => onCategoryChange(cat)}
             className={`
               shrink-0 px-4 py-2 text-xs tracking-[0.08em] uppercase

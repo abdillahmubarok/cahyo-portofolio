@@ -56,8 +56,8 @@ export function ProjectsFilter({ projects, categories }: Props) {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.3 }}
         >
-          {filtered.map((project, i) => (
-            <ProjectCard key={project.id} project={project} index={i} />
+          {filtered.map((project) => (
+            <ProjectCard key={project.id} project={project} />
           ))}
         </motion.div>
       </AnimatePresence>

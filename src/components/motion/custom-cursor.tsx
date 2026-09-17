@@ -1,144 +1,61 @@
 'use client'
 
 import { motion, useMotionValue, useSpring } from 'motion/react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-
-// ─── Pointer capability detection (hydration-safe) ───
-
-function subscribePointer(callback: () => void) {
-  const mq = window.matchMedia('(pointer: fine)')
-  mq.addEventListener('change', callback)
-  return () => mq.removeEventListener('change', callback)
-}
-
-function getPointerSnapshot() {
-  return window.matchMedia('(pointer: fine)').matches
-}
-
-function getServerPointerSnapshot() {
-  return false
-}
-
-// ─── Component ───
+import { useEffect, useState } from 'react'
+import { useMotionProfile } from './use-motion-profile'
 
 export function CustomCursor() {
-  const hasFinePointer = useSyncExternalStore(
-    subscribePointer,
-    getPointerSnapshot,
-    getServerPointerSnapshot
-  )
-
-  // Position tracked entirely via MotionValues — no React state, no re-renders
-  const cursorX = useMotionValue(-100)
-  const cursorY = useMotionValue(-100)
-  const springX = useSpring(cursorX, { stiffness: 500, damping: 40 })
-  const springY = useSpring(cursorY, { stiffness: 500, damping: 40 })
-
-  // Hover state — only boolean, set via event delegation
-  const [isHovering, setIsHovering] = useState(false)
-
-  // Visibility tracked via ref to avoid useEffect re-runs
-  const isVisibleRef = useRef(false)
-  const [, forceVisibility] = useState(0)
+  const profile = useMotionProfile()
+  const x = useMotionValue(-100)
+  const y = useMotionValue(-100)
+  const opacity = useMotionValue(0)
+  const springX = useSpring(x, { stiffness: 500, damping: 40 })
+  const springY = useSpring(y, { stiffness: 500, damping: 40 })
+  const [hovering, setHovering] = useState(false)
 
   useEffect(() => {
-    if (!hasFinePointer) return
-
-    // One-time reduced motion check at init
-    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReduced) return
-
-    let visible = false
-
-    const handleMove = (e: MouseEvent) => {
-      cursorX.set(e.clientX)
-      cursorY.set(e.clientY)
-      if (!visible) {
-        visible = true
-        isVisibleRef.current = true
-        forceVisibility(v => v + 1)
-      }
+    if (profile !== 'full') return
+    const move = (event: PointerEvent) => {
+      // Hybrid devices can switch input without changing their media queries.
+      if (event.pointerType !== 'mouse') { opacity.set(0); return }
+      x.set(event.clientX)
+      y.set(event.clientY)
+      opacity.set(1)
     }
-
-    const handleEnter = () => {
-      visible = true
-      isVisibleRef.current = true
-      forceVisibility(v => v + 1)
+    const over = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') { opacity.set(0); return }
+      setHovering(event.target instanceof Element && !!event.target.closest('[data-cursor-hover]'))
     }
-
-    const handleLeave = () => {
-      visible = false
-      isVisibleRef.current = false
-      forceVisibility(v => v + 1)
+    const out = (event: PointerEvent) => {
+      setHovering(event.relatedTarget instanceof Element && !!event.relatedTarget.closest('[data-cursor-hover]'))
+      if (!event.relatedTarget) opacity.set(0)
     }
-
-    // ─── Event delegation for hover detection ───
-    // Single mouseover/mouseout listener on document, no MutationObserver
-    const handleMouseOver = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (target.closest?.('[data-cursor-hover]')) {
-        setIsHovering(true)
-      }
-    }
-
-    const handleMouseOut = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      const related = e.relatedTarget as HTMLElement | null
-      // Only unhover if we've actually left the [data-cursor-hover] boundary
-      if (
-        target.closest?.('[data-cursor-hover]') &&
-        (!related || !related.closest?.('[data-cursor-hover]'))
-      ) {
-        setIsHovering(false)
-      }
-    }
-
-    document.addEventListener('mousemove', handleMove, { passive: true })
-    document.addEventListener('mouseenter', handleEnter)
-    document.addEventListener('mouseleave', handleLeave)
-    document.addEventListener('mouseover', handleMouseOver, { passive: true })
-    document.addEventListener('mouseout', handleMouseOut, { passive: true })
-
+    const hide = () => opacity.set(0)
+    document.addEventListener('pointermove', move, { passive: true })
+    document.addEventListener('pointerdown', move, { passive: true })
+    document.addEventListener('pointerover', over, { passive: true })
+    document.addEventListener('pointerout', out, { passive: true })
+    window.addEventListener('blur', hide)
+    document.addEventListener('visibilitychange', hide)
     return () => {
-      document.removeEventListener('mousemove', handleMove)
-      document.removeEventListener('mouseenter', handleEnter)
-      document.removeEventListener('mouseleave', handleLeave)
-      document.removeEventListener('mouseover', handleMouseOver)
-      document.removeEventListener('mouseout', handleMouseOut)
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerdown', move)
+      document.removeEventListener('pointerover', over)
+      document.removeEventListener('pointerout', out)
+      window.removeEventListener('blur', hide)
+      document.removeEventListener('visibilitychange', hide)
+      opacity.set(0)
     }
-  }, [hasFinePointer, cursorX, cursorY])
+  }, [profile, x, y, opacity])
 
-  if (!hasFinePointer) return null
-
+  if (profile !== 'full') return null
   return (
-    <motion.div
-      className="custom-cursor"
-      style={{ x: springX, y: springY }}
-      animate={{
-        width: isHovering ? 80 : 8,
-        height: isHovering ? 80 : 8,
-        opacity: isVisibleRef.current ? 1 : 0,
-        translateX: isHovering ? -40 : -4,
-        translateY: isHovering ? -40 : -4,
-      }}
-      transition={{ duration: 0.2 }}
-    >
-      <div
-        className="flex items-center justify-center rounded-full bg-white"
-        style={{
-          width: '100%',
-          height: '100%',
-        }}
-      >
-        {isHovering && (
-          <motion.span
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="text-[11px] font-medium tracking-[0.1em] uppercase text-black"
-          >
-            Lihat
-          </motion.span>
-        )}
+    <motion.div aria-hidden="true" className="custom-cursor" style={{ x: springX, y: springY, opacity }}>
+      <div style={{ transform: 'translate(-50%, -50%)' }}>
+        <motion.div className="flex h-16 w-16 items-center justify-center rounded-full border border-white/80 bg-foreground/90 text-white shadow-sm"
+          animate={{ scale: hovering ? 1 : 0.125 }} transition={{ duration: 0.18 }}>
+          <motion.span className="text-[10px] uppercase tracking-widest" animate={{ opacity: hovering ? 1 : 0 }}>Lihat</motion.span>
+        </motion.div>
       </div>
     </motion.div>
   )

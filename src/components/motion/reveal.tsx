@@ -1,6 +1,7 @@
 'use client'
 
-import { motion, useReducedMotion } from 'motion/react'
+import { motion } from 'motion/react'
+import { useMotionProfile } from './use-motion-profile'
 import type { ReactNode } from 'react'
 
 type RevealProps = {
@@ -10,9 +11,9 @@ type RevealProps = {
 }
 
 export function RevealText({ children, delay = 0, className = '' }: RevealProps) {
-  const prefersReduced = useReducedMotion()
+  const profile = useMotionProfile()
 
-  if (prefersReduced) {
+  if (profile !== 'full') {
     return <div className={className}>{children}</div>
   }
 
@@ -31,9 +32,9 @@ export function RevealText({ children, delay = 0, className = '' }: RevealProps)
 }
 
 export function FadeIn({ children, delay = 0, className = '' }: RevealProps) {
-  const prefersReduced = useReducedMotion()
+  const profile = useMotionProfile()
 
-  if (prefersReduced) {
+  if (profile !== 'full') {
     return <div className={className}>{children}</div>
   }
 
@@ -51,9 +52,9 @@ export function FadeIn({ children, delay = 0, className = '' }: RevealProps) {
 }
 
 export function ImageReveal({ children, delay = 0, className = '' }: RevealProps) {
-  const prefersReduced = useReducedMotion()
+  const profile = useMotionProfile()
 
-  if (prefersReduced) {
+  if (profile !== 'full') {
     return <div className={className}>{children}</div>
   }
 
@@ -71,9 +72,9 @@ export function ImageReveal({ children, delay = 0, className = '' }: RevealProps
 }
 
 export function StaggerContainer({ children, className = '' }: { children: ReactNode; className?: string }) {
-  const prefersReduced = useReducedMotion()
+  const profile = useMotionProfile()
 
-  if (prefersReduced) {
+  if (profile !== 'full') {
     return <div className={className}>{children}</div>
   }
 

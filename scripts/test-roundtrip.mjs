@@ -1,156 +1,75 @@
-import { createClient } from '@supabase/supabase-js'
-import fs from 'fs'
-import path from 'path'
-import zlib from 'zlib'
+import { chromium, expect } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { adminClient, requireMutationTarget, check, baseURL, supabaseUrl } from './lib/environment.mjs'
 
-const envPath = path.resolve('.env.local')
-const envContent = fs.readFileSync(envPath, 'utf8')
-const supabaseUrl = envContent.match(/NEXT_PUBLIC_SUPABASE_URL=([^\r\n]+)/)[1].trim()
-const supabaseKey = envContent.match(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=([^\r\n]+)/)[1].trim()
-
-const supabase = createClient(supabaseUrl, supabaseKey)
-
-const adminPassword = process.env.TEMP_ADMIN_PASSWORD
-if (adminPassword) {
-  const { error: authErr } = await supabase.auth.signInWithPassword({
-    email: 'admin@cahyo-architecture.com',
-    password: adminPassword,
-  })
-  if (authErr) throw new Error('Admin auth failed: ' + authErr.message)
+// Creates only a uniquely named temporary project. Never edits owner content.
+requireMutationTarget()
+const admin = await adminClient()
+const id = randomUUID()
+const slug = `roundtrip-${id}`
+const paths = [0,1,2].map(index => `projects/${id}/roundtrip-${index}.png`)
+let projectCreated = false
+let browser
+let page
+// Valid 1x1 PNG; image decode is asserted in the real drawer.
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR1sAAAAASUVORK5CYII=', 'base64')
+async function openFreshDrawer() {
+  // Direct DB mutations bypass Server Action invalidation. Poll across the
+  // documented 60s ISR period, never mistake serialized/stale HTML for rendering.
+  await expect(async () => {
+    await page.goto(`${baseURL}/?project=${slug}#projects`)
+    await expect(page.getByRole('dialog')).toBeVisible({ timeout: 3000 })
+  }).toPass({ timeout: 150000, intervals: [1500,5000,15000] })
 }
-
-// Create 100x100 valid PNG
-function createPngBuffer() {
-  const width = 100
-  const height = 100
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-  const chunk = (type, data) => {
-    const len = Buffer.alloc(4)
-    len.writeUInt32BE(data.length, 0)
-    const typeBuf = Buffer.from(type, 'ascii')
-    const body = Buffer.concat([typeBuf, data])
-    const crc = Buffer.alloc(4)
-    let c = 0xffffffff
-    for (let i = 0; i < body.length; i++) {
-      c ^= body[i]
-      for (let j = 0; j < 8; j++) c = (c >>> 1) ^ ((c & 1) ? 0xedb88320 : 0)
+try {
+  check(await admin.from('projects').insert({id, slug, title:'Temporary media roundtrip', published:true, sort_order:999999}), 'Create temporary project')
+  projectCreated = true
+  const mediaIds = []
+  for (const [index, path] of paths.entries()) {
+    check(await admin.storage.from('portfolio-images').upload(path,png,{contentType:'image/png', cacheControl:'0'}), 'Upload temporary image')
+    const row = check(await admin.from('project_media').insert({ project_id:id, storage_path:path, width:1, height:1, aspect_ratio:1, sort_order:index, is_cover:index===0, alt_text:`Roundtrip image ${index}` }).select().single(), 'Register temporary media')
+    mediaIds.push(row.id)
+    if (!(await fetch(`${supabaseUrl}/storage/v1/object/public/portfolio-images/${path}`,{method:'HEAD'})).ok) throw new Error('Storage image unreachable')
+  }
+  expect(check(await admin.from('project_media').select('id').eq('project_id',id),'Query registered media')).toHaveLength(3)
+  browser = await chromium.launch()
+  page = await browser.newPage()
+  await openFreshDrawer()
+  for(const mediaId of mediaIds) {
+    const image = page.getByRole('dialog').locator(`[data-media-id="${mediaId}"] img`)
+    await image.scrollIntoViewIfNeeded()
+    await expect(image).toBeInViewport()
+    await expect.poll(()=>image.evaluate(n=>n.naturalWidth)).toBeGreaterThan(0)
+  }
+  check(await admin.rpc('set_project_cover',{p_project_id:id,p_media_id:mediaIds[0]}),'Atomic cover')
+  check(await admin.rpc('reorder_project_media',{p_project_id:id,p_media_ids:[mediaIds[0],mediaIds[2],mediaIds[1]]}),'Reorder gallery')
+  await expect(async()=>{
+    await page.reload()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    expect(await page.getByRole('dialog').locator('figure[data-media-id]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('data-media-id')))).toEqual([mediaIds[2],mediaIds[1]])
+  }).toPass({timeout:150000,intervals:[2000,10000,20000]})
+  console.log('PASS: uploaded, queried, decoded visible drawer images, transactional cover and visible reordered gallery')
+} finally {
+  // DB before Storage; only delete assets after confirmed removal of references.
+  try {
+    if (projectCreated) {
+      check(await admin.from('projects').delete().eq('id',id),'Cleanup temporary project')
+      expect(check(await admin.from('project_media').select('id').eq('project_id',id),'Verify rows removed')).toHaveLength(0)
     }
-    crc.writeUInt32BE((c ^ 0xffffffff) >>> 0, 0)
-    return Buffer.concat([len, body, crc])
+    check(await admin.storage.from('portfolio-images').remove(paths),'Cleanup temporary Storage objects')
+    const remaining = check(await admin.storage.from('portfolio-images').list(`projects/${id}`),'Verify Storage removed')
+    expect(remaining).toHaveLength(0)
+    if (page) await expect(async()=>{
+      await page.goto(`${baseURL}/?project=${slug}#projects`)
+      await expect(page.locator('[data-media-id]')).toHaveCount(0)
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+    }).toPass({timeout:150000,intervals:[2000,10000,20000]})
+    console.log('PASS: cleanup verified in database, Storage and public drawer')
+  } catch(error) {
+    console.error(`CLEANUP FAILED; retry only temporary project ${id} and paths ${paths.join(', ')}`)
+    throw error
+  } finally {
+    await browser?.close()
+    await admin.auth.signOut()
   }
-  const ihdr = Buffer.alloc(13)
-  ihdr.writeUInt32BE(width, 0)
-  ihdr.writeUInt32BE(height, 4)
-  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0
-  const scanline = 1 + width * 3
-  const raw = Buffer.alloc(height * scanline)
-  for (let y = 0; y < height; y++) {
-    const off = y * scanline
-    raw[off] = 0
-    for (let x = 0; x < width; x++) {
-      const px = off + 1 + x * 3
-      raw[px] = 200; raw[px + 1] = 180; raw[px + 2] = 160
-    }
-  }
-  return Buffer.concat([
-    signature,
-    chunk('IHDR', ihdr),
-    chunk('IDAT', zlib.deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0))
-  ])
 }
-
-async function runRoundtrip() {
-  console.log('=================================================================')
-  console.log('CAHYO ARCHITECTURE — PHASE 33 MEDIA ROUNDTRIP VERIFICATION')
-  console.log('=================================================================')
-
-  // 1. Get target project
-  const { data: project, error: pErr } = await supabase
-    .from('projects')
-    .select('id, slug, title')
-    .eq('slug', 'rumah-1-lantai-5x8-meter')
-    .single()
-
-  if (pErr || !project) {
-    throw new Error('Target project not found: ' + pErr?.message)
-  }
-  console.log(`Target project: "${project.title}" (${project.id})`)
-
-  // 2. Upload test image buffer
-  const filename = `test-roundtrip-verify-${Date.now()}.png`
-  const storagePath = `projects/${project.id}/${filename}`
-  const pngBuffer = createPngBuffer()
-
-  console.log(`[Step 1] Uploading test image: ${storagePath}`)
-  const { error: upErr } = await supabase.storage
-    .from('portfolio-images')
-    .upload(storagePath, pngBuffer, { contentType: 'image/png' })
-
-  if (upErr) throw new Error('Upload failed: ' + upErr.message)
-
-  // Verify storage reachable
-  const testUrl = `${supabaseUrl}/storage/v1/object/public/portfolio-images/${storagePath}`
-  const headRes = await fetch(testUrl, { method: 'HEAD' })
-  console.log(`[Step 2] Storage reachability check: HTTP ${headRes.status}`)
-  if (headRes.status !== 200) throw new Error('Uploaded image not reachable via public URL')
-
-  // 3. Register media in DB
-  console.log(`[Step 3] Registering media record in DB...`)
-  const { data: mediaRecord, error: dbErr } = await supabase
-    .from('project_media')
-    .insert({
-      project_id: project.id,
-      storage_path: storagePath,
-      width: 100,
-      height: 100,
-      aspect_ratio: 1.0,
-      sort_order: 99,
-      is_cover: false,
-      alt_text: 'Temporary Roundtrip Verification Image',
-      caption: 'Roundtrip Verification Caption'
-    })
-    .select()
-    .single()
-
-  if (dbErr) throw new Error('DB insert failed: ' + dbErr.message)
-  console.log(`DB Record Created: ${mediaRecord.id}`)
-
-  // 4. Fetch public page and verify render
-  console.log(`[Step 4] Checking public detail page render...`)
-  await new Promise(r => setTimeout(r, 1000))
-  const pageRes = await fetch(`http://localhost:3000/projects/${project.slug}`)
-  const pageHtml = await pageRes.text()
-
-  const isRendered = pageHtml.includes(filename)
-  console.log(`Public page rendered new image: ${isRendered}`)
-
-  // 5. Clean deletion
-  console.log(`[Step 5] Deleting test media record and storage asset...`)
-  const { error: delDbErr } = await supabase
-    .from('project_media')
-    .delete()
-    .eq('id', mediaRecord.id)
-
-  if (delDbErr) throw new Error('Delete DB record failed: ' + delDbErr.message)
-
-  const { error: delStoreErr } = await supabase.storage
-    .from('portfolio-images')
-    .remove([storagePath])
-
-  if (delStoreErr) throw new Error('Delete storage file failed: ' + delStoreErr.message)
-
-  // 6. Verify clean state
-  console.log(`[Step 6] Verifying clean-state removal...`)
-  const verifyHead = await fetch(testUrl, { method: 'HEAD' })
-  console.log(`Deleted image storage status: HTTP ${verifyHead.status} (expected 400/404)`)
-
-  console.log('=================================================================')
-  console.log('PHASE 33 MEDIA ROUNDTRIP: ALL STEPS COMPLETED CLEANLY (PASS)!')
-  console.log('=================================================================')
-}
-
-runRoundtrip().catch(err => {
-  console.error('ROUNDTRIP FAILED:', err)
-  process.exit(1)
-})

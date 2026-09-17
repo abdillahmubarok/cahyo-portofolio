@@ -1,7 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { ProjectCard } from './project-card'
 import { ProjectFilter } from './project-filter'
 import { ProjectDrawer } from './project-drawer'
@@ -20,10 +19,9 @@ type PortfolioSectionProps = {
  * - History push/pop for drawer open/close
  */
 export function PortfolioSection({ projects }: PortfolioSectionProps) {
-  const searchParams = useSearchParams()
   const [activeCategory, setActiveCategory] = useState('Semua')
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
-  const [isHydrated, setIsHydrated] = useState(false)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   // Extract unique categories from actual data
   const categories = useMemo(() => {
@@ -44,21 +42,22 @@ export function PortfolioSection({ projects }: PortfolioSectionProps) {
 
   // On mount: check for ?project=slug (deep link)
   useEffect(() => {
-    setIsHydrated(true)
-    const slugParam = searchParams.get('project')
+    const slugParam = new URL(window.location.href).searchParams.get('project')
     if (slugParam) {
       const exists = projects.some(p => p.slug === slugParam)
       if (exists) {
-        setSelectedSlug(slugParam)
+        // Synchronize external URL state after hydration; cards remain in SSR HTML.
+        const frame = requestAnimationFrame(() => setSelectedSlug(slugParam))
+        return () => cancelAnimationFrame(frame)
         // Deep link — mark that we did NOT push this entry
       } else {
         // Invalid slug — silently remove
         const url = new URL(window.location.href)
         url.searchParams.delete('project')
-        window.history.replaceState({}, '', url.toString())
+        window.history.replaceState(window.history.state, '', url.toString())
       }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projects])
 
   // Listen for popstate (Back/Forward)
   useEffect(() => {
@@ -78,32 +77,32 @@ export function PortfolioSection({ projects }: PortfolioSectionProps) {
   }, [projects])
 
   // Open project drawer
-  const handleOpenProject = useCallback((slug: string) => {
+  const handleOpenProject = useCallback((slug: string, trigger: HTMLButtonElement) => {
+    returnFocusRef.current = trigger
     setSelectedSlug(slug)
 
     // Push a new history entry with marker
     const url = new URL(window.location.href)
     url.searchParams.set('project', slug)
     // Preserve hash
-    if (!url.hash) url.hash = '#projects'
-    window.history.pushState({ drawerPushed: true }, '', url.toString())
+    url.hash = '#projects'
+    window.history.pushState({ ...window.history.state, cahyoPortfolio: { ...window.history.state?.cahyoPortfolio, drawer: true, slug } }, '', url.toString())
   }, [])
 
   // Close project drawer
   const handleCloseDrawer = useCallback(() => {
-    setSelectedSlug(null)
-
     // Check if the current entry was pushed by us
     const state = window.history.state
-    if (state?.drawerPushed) {
+    if (state?.cahyoPortfolio?.drawer) {
       // Pop our entry — Back button semantics
       window.history.back()
     } else {
+      setSelectedSlug(null)
       // Deep link case — we didn't push, so replace instead of going back
       const url = new URL(window.location.href)
       url.searchParams.delete('project')
       if (!url.hash) url.hash = '#projects'
-      window.history.replaceState({}, '', url.toString())
+      window.history.replaceState({ ...state, cahyoPortfolio: { ...state?.cahyoPortfolio, drawer: false, slug: null } }, '', url.toString())
     }
   }, [])
 
@@ -114,7 +113,8 @@ export function PortfolioSection({ projects }: PortfolioSectionProps) {
     const url = new URL(window.location.href)
     url.searchParams.set('project', slug)
     if (!url.hash) url.hash = '#projects'
-    window.history.replaceState({ drawerPushed: true }, '', url.toString())
+    const state = window.history.state
+    window.history.replaceState({ ...state, cahyoPortfolio: { ...state?.cahyoPortfolio, drawer: state?.cahyoPortfolio?.drawer === true, slug } }, '', url.toString())
   }, [])
 
   return (
@@ -138,11 +138,11 @@ export function PortfolioSection({ projects }: PortfolioSectionProps) {
 
         {/* Project Grid */}
         <div className="masonry-grid">
-          {filteredProjects.map((project, i) => (
+          {filteredProjects.map((project) => (
             <ProjectCard
               key={project.id}
               project={project}
-              index={i}
+              expanded={selectedSlug === project.slug}
               onOpenProject={handleOpenProject}
             />
           ))}
@@ -156,14 +156,13 @@ export function PortfolioSection({ projects }: PortfolioSectionProps) {
       </div>
 
       {/* Project Drawer — renders in portal */}
-      {isHydrated && (
         <ProjectDrawer
           projects={projects}
           selectedSlug={selectedSlug}
           onClose={handleCloseDrawer}
           onSelectProject={handleNavigateProject}
+          returnFocusRef={returnFocusRef}
         />
-      )}
     </section>
   )
 }

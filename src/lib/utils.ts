@@ -9,7 +9,7 @@ export function getStorageUrl(path: string | null | undefined): string {
 }
 
 export function generateStoragePath(projectId: string, fileName: string): string {
-  const timestamp = Date.now()
+  const timestamp = crypto.randomUUID()
   const sanitized = fileName.replace(/[^a-zA-Z0-9._-]/g, '_')
   return `projects/${projectId}/${timestamp}_${sanitized}`
 }

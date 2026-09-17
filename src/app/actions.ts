@@ -272,6 +272,12 @@ export async function registerProjectMedia(
   await getAuthenticatedAdmin()
   const supabase = await createClient()
 
+  if (!mediaData.storage_path.startsWith(`projects/${projectId}/`) || mediaData.storage_path.includes('..') ||
+      !Number.isInteger(mediaData.width) || !Number.isInteger(mediaData.height) ||
+      (mediaData.width ?? 0) <= 0 || (mediaData.height ?? 0) <= 0) {
+    throw new Error('Path atau dimensi gambar tidak valid.')
+  }
+
   const { data, error } = await supabase
     .from('project_media')
     .insert({
@@ -304,19 +310,51 @@ export async function registerProjectMedia(
   return data
 }
 
-export async function deleteMedia(mediaId: string, storagePath: string) {
+export async function cleanupUnregisteredMedia(projectId: string, storagePath: string) {
+  await getAuthenticatedAdmin()
+  const supabase = await createClient()
+  if (!storagePath.startsWith(`projects/${projectId}/`) || storagePath.includes('..')) {
+    throw new Error('Path media tidak valid.')
+  }
+  const { data: references, error } = await supabase.from('project_media').select('id').eq('storage_path', storagePath)
+  if (error) throw new Error('Gagal memeriksa referensi gambar. Coba pembersihan kembali.')
+  // A registration response can be lost after the database committed. Never
+  // delete an object which now has a row, including during upload compensation.
+  if (references.length) return { registered: true }
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error: storageError } = await supabase.storage.from('portfolio-images').remove([storagePath])
+    if (!storageError) return { registered: false }
+    if (attempt === 2) {
+      console.error('Storage cleanup failed:', storagePath, storageError)
+      throw new Error(`Pembersihan Storage gagal. Coba lagi: ${storagePath}`)
+    }
+  }
+  return { registered: false }
+}
+
+export async function deleteMedia(mediaId: string) {
   await getAuthenticatedAdmin()
   const supabase = await createClient()
 
   // Find project_id before deleting
-  const { data: mediaItem } = await supabase
+  const { data: mediaItem, error: readError } = await supabase
     .from('project_media')
-    .select('project_id')
+    .select('project_id, storage_path')
     .eq('id', mediaId)
     .maybeSingle()
 
-  await supabase.storage.from('portfolio-images').remove([storagePath])
-  await supabase.from('project_media').delete().eq('id', mediaId)
+  if (readError) throw new Error('Gagal memuat gambar.')
+  if (!mediaItem) return {}
+  // DB first: a failed delete leaves both row and asset intact. Storage cleanup
+  // is retryable; a failed cleanup leaves an unreferenced asset, not a broken image.
+  const { error: deleteError } = await supabase.from('project_media').delete().eq('id', mediaId)
+  if (deleteError) throw new Error('Gagal menghapus data gambar; file tetap tersimpan.')
+  let cleanupPath: string | undefined
+  try {
+    await cleanupUnregisteredMedia(mediaItem.project_id, mediaItem.storage_path)
+  } catch {
+    cleanupPath = mediaItem.storage_path
+  }
 
   if (mediaItem?.project_id) {
     const { data: project } = await supabase
@@ -332,6 +370,8 @@ export async function deleteMedia(mediaId: string, storagePath: string) {
   revalidatePath('/')
   revalidatePath('/projects')
   revalidatePath('/admin/projects')
+  revalidatePath(`/admin/projects/${mediaItem.project_id}/edit`)
+  return { cleanupPath }
 }
 
 export async function setCoverImage(mediaId: string, projectId: string) {
@@ -344,17 +384,11 @@ export async function setCoverImage(mediaId: string, projectId: string) {
     .eq('id', projectId)
     .maybeSingle()
 
-  // Remove current cover
-  await supabase
-    .from('project_media')
-    .update({ is_cover: false })
-    .eq('project_id', projectId)
-
-  // Set new cover
-  await supabase
-    .from('project_media')
-    .update({ is_cover: true })
-    .eq('id', mediaId)
+  const { error } = await supabase.rpc('set_project_cover', { p_project_id: projectId, p_media_id: mediaId })
+  if (error) {
+    console.error('set_project_cover:', error)
+    throw new Error('Gagal mengganti cover. Pastikan migrasi media sudah diterapkan.')
+  }
 
   if (project?.slug) {
     revalidatePath(`/projects/${project.slug}`)
@@ -375,10 +409,11 @@ export async function updateMediaAlt(mediaId: string, altText: string, caption: 
     .eq('id', mediaId)
     .maybeSingle()
 
-  await supabase
+  const { error } = await supabase
     .from('project_media')
     .update({ alt_text: altText, caption })
     .eq('id', mediaId)
+  if (error) throw new Error('Gagal menyimpan metadata gambar.')
 
   if (mediaItem?.project_id) {
     const { data: project } = await supabase
@@ -393,42 +428,23 @@ export async function updateMediaAlt(mediaId: string, altText: string, caption: 
   }
   revalidatePath('/')
   revalidatePath('/projects')
+  if (mediaItem) revalidatePath(`/admin/projects/${mediaItem.project_id}/edit`)
 }
 
-export async function updateMediaOrder(items: { id: string; sort_order: number }[]) {
+export async function updateMediaOrder(projectId: string, mediaIds: string[]) {
   await getAuthenticatedAdmin()
   const supabase = await createClient()
 
-  for (const item of items) {
-    await supabase
-      .from('project_media')
-      .update({ sort_order: item.sort_order })
-      .eq('id', item.id)
-  }
-
-  if (items.length > 0) {
-    const { data: media } = await supabase
-      .from('project_media')
-      .select('project_id')
-      .eq('id', items[0].id)
-      .maybeSingle()
-
-    if (media?.project_id) {
-      const { data: project } = await supabase
-        .from('projects')
-        .select('slug')
-        .eq('id', media.project_id)
-        .maybeSingle()
-
-      if (project?.slug) {
-        revalidatePath(`/projects/${project.slug}`)
-      }
-    }
+  const { error } = await supabase.rpc('reorder_project_media', { p_project_id: projectId, p_media_ids: mediaIds })
+  if (error) {
+    console.error('reorder_project_media:', error)
+    throw new Error('Gagal menyimpan urutan. Muat ulang data dan pastikan migrasi media sudah diterapkan.')
   }
 
   revalidatePath('/')
   revalidatePath('/projects')
   revalidatePath('/admin/projects')
+  revalidatePath(`/admin/projects/${projectId}/edit`)
 }
 
 // ========================

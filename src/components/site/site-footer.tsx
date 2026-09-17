@@ -1,4 +1,4 @@
-import Link from 'next/link'
+
 import { AtSign, ExternalLink, ArrowUpRight } from 'lucide-react'
 import type { SiteSettings } from '@/lib/types'
 
@@ -27,18 +27,18 @@ export function SiteFooter({ settings }: FooterProps) {
           <div>
             <p className="text-label mb-4">Navigasi</p>
             <nav className="flex flex-col gap-2" aria-label="Footer navigation">
-              <Link href="/projects" className="text-sm text-muted hover:text-foreground transition-colors">
+              <a href="#projects" className="text-sm text-muted hover:text-foreground transition-colors">
                 Proyek
-              </Link>
-              <Link href="/about" className="text-sm text-muted hover:text-foreground transition-colors">
+              </a>
+              <a href="#about" className="text-sm text-muted hover:text-foreground transition-colors">
                 Tentang
-              </Link>
-              <Link href="/services" className="text-sm text-muted hover:text-foreground transition-colors">
+              </a>
+              <a href="#services" className="text-sm text-muted hover:text-foreground transition-colors">
                 Layanan
-              </Link>
-              <Link href="/contact" className="text-sm text-muted hover:text-foreground transition-colors">
+              </a>
+              <a href="#contact" className="text-sm text-muted hover:text-foreground transition-colors">
                 Kontak
-              </Link>
+              </a>
             </nav>
           </div>
 

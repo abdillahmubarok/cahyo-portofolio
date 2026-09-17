@@ -33,11 +33,16 @@
   inset: 0;
   z-index: 61;
   pointer-events: none;
+  height: 100vh;
+  height: 100dvh;
 }
 
 /* ─── Popup (the sliding panel) ─── */
 
 .drawer-popup {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
   pointer-events: auto;
   background: var(--background);
   overflow: hidden;
@@ -52,7 +57,13 @@
   bottom: 0;
   left: 0;
   right: 0;
+  height: 94vh;
+  height: 94dvh;
   max-height: 96vh;
+  max-height: 96dvh;
+  /* Base UI translates the fixed frame at each snap. Reserve the part below
+     the viewport so the entire scroll body remains reachable at BOTH snaps. */
+  padding-bottom: var(--drawer-snap-point-offset, 0px);
   border-radius: 12px 12px 0 0;
   box-shadow: 0 -4px 40px rgb(0 0 0 / 0.08);
   transform: translateY(
@@ -105,21 +116,38 @@
 /* ─── Content area ─── */
 
 .drawer-content {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  touch-action: pan-y;
 }
 
 /* Bottom sheet drag handle */
 .drawer-handle {
+  flex: 0 0 44px;
+  display: flex;
+  justify-content: center;
+  touch-action: none;
+}
+
+.drawer-handle button {
+  width: 64px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.drawer-handle button::after {
+  content: '';
+  display: block;
   width: 36px;
   height: 4px;
+  margin: auto;
   border-radius: 2px;
-  background: var(--border);
-  margin: 8px auto 4px;
-  flex-shrink: 0;
+  background: var(--muted);
 }
 
 /* ─── Close button ─── */

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
+import { siteUrl } from '@/lib/site-url';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -8,6 +9,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
+  metadataBase: siteUrl,
   title: {
     default: 'Cahyo Architecture — Arsitektur & Desain Interior',
     template: '%s — Cahyo Architecture',

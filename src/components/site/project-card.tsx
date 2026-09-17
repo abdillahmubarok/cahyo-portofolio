@@ -7,8 +7,8 @@ import { getStorageUrl } from '@/lib/utils'
 
 type ProjectCardProps = {
   project: ProjectWithMedia | ProjectWithCover
-  index?: number
-  onOpenProject?: (slug: string) => void
+  expanded?: boolean
+  onOpenProject?: (slug: string, trigger: HTMLButtonElement) => void
 }
 
 /**
@@ -22,18 +22,18 @@ function getCover(project: ProjectWithMedia | ProjectWithCover): ProjectMedia | 
   return null
 }
 
-export function ProjectCard({ project, index = 0, onOpenProject }: ProjectCardProps) {
+export function ProjectCard({ project, expanded = false, onOpenProject }: ProjectCardProps) {
   const cover = getCover(project)
   const imageUrl = cover ? getStorageUrl(cover.storage_path) : null
-
-  const handleClick = () => {
-    onOpenProject?.(project.slug)
-  }
 
   return (
     <button
       type="button"
-      onClick={handleClick}
+      id={`project-trigger-${project.slug}`}
+      aria-haspopup="dialog"
+      aria-expanded={expanded}
+      aria-label={`Lihat proyek ${project.title}`}
+      onClick={(event) => onOpenProject?.(project.slug, event.currentTarget)}
       className="masonry-item block group text-left w-full"
       data-cursor-hover
     >
@@ -56,7 +56,7 @@ export function ProjectCard({ project, index = 0, onOpenProject }: ProjectCardPr
           )}
 
           {/* Desktop hover overlay */}
-          <div className="absolute inset-0 bg-foreground/0 group-hover:bg-foreground/20 transition-all duration-500 hidden md:flex items-end p-6 opacity-0 group-hover:opacity-100">
+          <div className="absolute inset-0 bg-foreground/20 transition-opacity duration-500 hidden md:flex items-end p-6 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">
             <div className="translate-y-4 group-hover:translate-y-0 transition-transform duration-500">
               {project.category && (
                 <span className="text-[10px] tracking-[0.15em] uppercase text-white/70 block mb-1">

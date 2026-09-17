@@ -1,53 +1,9 @@
-import { createClient } from '@supabase/supabase-js'
-import fs from 'fs'
-import path from 'path'
 import zlib from 'zlib'
 
-// 1. Read environment variables
-const envPath = path.resolve('.env.local')
-if (!fs.existsSync(envPath)) {
-  console.error('ERROR: .env.local not found')
-  process.exit(1)
-}
+import { adminClient, requireMutationTarget, supabaseUrl } from './lib/environment.mjs'
 
-const env = Object.fromEntries(
-  fs.readFileSync(envPath, 'utf8')
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('#') && l.includes('='))
-    .map(l => {
-      const idx = l.indexOf('=')
-      return [l.slice(0, idx).trim(), l.slice(idx + 1).trim()]
-    })
-)
-
-const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-const adminPassword = process.env.TEMP_ADMIN_PASSWORD
-
-if (!adminPassword) {
-  console.error('ERROR: TEMP_ADMIN_PASSWORD environment variable is required to seed template media.')
-  process.exit(1)
-}
-
-const client = createClient(supabaseUrl, supabaseAnonKey)
-
-// 2. Authenticate Admin
-console.log('='.repeat(65))
-console.log('CAHYO ARCHITECTURE — SAFE TEMPLATE PORTFOLIO SEEDER')
-console.log('='.repeat(65))
-console.log('Authenticating admin session...')
-
-const { data: authData, error: authErr } = await client.auth.signInWithPassword({
-  email: 'admin@cahyo-architecture.com',
-  password: adminPassword,
-})
-
-if (authErr || !authData.session) {
-  console.error('FAIL: Admin login failed:', authErr?.message)
-  process.exit(1)
-}
-console.log('Admin authenticated successfully.')
+requireMutationTarget()
+const client = await adminClient()
 
 // 3. Helper: Generate valid architectural raster PNG buffer
 function createArchitecturalPng(width, height, baseColor) {
@@ -310,16 +266,8 @@ async function seedPortfolio() {
     }
 
     if (existing) {
-      const { error: upErr } = await client
-        .from('projects')
-        .update(projectPayload)
-        .eq('id', existing.id)
-
-      if (upErr) {
-        console.error(`  FAIL updating project ${p.slug}:`, upErr.message)
-        continue
-      }
-      console.log(`  UPDATED project: "${p.title}" (ID: ${existing.id})`)
+      console.log('SKIP existing owner-editable project:', p.slug)
+      continue
     } else {
       const { data: inserted, error: inErr } = await client
         .from('projects')

@@ -1,5 +1,3 @@
-'use client'
-
 import { RevealText, FadeIn } from '@/components/motion/reveal'
 import type { SiteSettings } from '@/lib/types'
 

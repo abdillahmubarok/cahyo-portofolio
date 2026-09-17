@@ -184,7 +184,7 @@ body {
   text-transform: uppercase;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .btn-primary {
@@ -287,7 +287,6 @@ body {
   top: 0;
   left: 0;
   z-index: 9999;
-  mix-blend-mode: difference;
   will-change: transform;
 }
 

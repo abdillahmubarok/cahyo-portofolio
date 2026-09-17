@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Menu, X } from 'lucide-react'
+import { useMotionProfile } from '@/components/motion/use-motion-profile'
 
 const navLinks = [
   { href: '#projects', label: 'Proyek' },
@@ -19,6 +20,7 @@ type SiteHeaderProps = {
 
 export function SiteHeader({ studioName }: SiteHeaderProps) {
   const pathname = usePathname()
+  const motionProfile = useMotionProfile()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<string | null>(null)
 
@@ -51,20 +53,21 @@ export function SiteHeader({ studioName }: SiteHeaderProps) {
   }, [pathname])
 
   const handleNavClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
     // Only smooth-scroll if we're on the homepage
     if (pathname === '/') {
       e.preventDefault()
       const id = href.replace('#', '')
       const el = document.getElementById(id)
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        el.scrollIntoView({ behavior: motionProfile === 'reduced' ? 'instant' : 'smooth', block: 'start' })
         // Update URL hash without scroll jump
-        window.history.pushState(null, '', href)
+        window.history.pushState(window.history.state, '', href)
       }
       setMobileOpen(false)
     }
     // If not on homepage, the Link will navigate to /#section which triggers redirect
-  }, [pathname])
+  }, [pathname, motionProfile])
 
   const isHomepage = pathname === '/'
 
@@ -126,7 +129,7 @@ export function SiteHeader({ studioName }: SiteHeaderProps) {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  transition={{ delay: i * 0.05 + 0.1 }}
+                  transition={{ duration: motionProfile === 'reduced' ? 0 : 0.3, delay: motionProfile === 'full' ? i * 0.05 + 0.1 : 0 }}
                 >
                   <a
                     href={isHomepage ? link.href : `/${link.href}`}

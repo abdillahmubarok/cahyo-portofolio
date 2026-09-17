@@ -1,7 +1,8 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
-import { motion, useMotionValue, useSpring, useTransform, useReducedMotion } from 'motion/react'
+import { useRef, useCallback, useEffect } from 'react'
+import { motion, useMotionValue, useSpring, useTransform } from 'motion/react'
+import { useMotionProfile } from './use-motion-profile'
 import type { ReactNode } from 'react'
 
 type PointerParallaxProps = {
@@ -31,7 +32,7 @@ export function PointerParallax({
 }: PointerParallaxProps) {
   const measurementRef = useRef<HTMLDivElement>(null)
   const cachedRect = useRef<DOMRect | null>(null)
-  const prefersReduced = useReducedMotion()
+  const profile = useMotionProfile()
 
   // MotionValues — no React state for coordinates
   const mouseX = useMotionValue(0)
@@ -48,19 +49,20 @@ export function PointerParallax({
   const rotateY = useTransform(springX, [-0.5, 0.5], [-maxRotate, maxRotate])
 
   // Cache bounds on mouseenter — measure once, reuse for all moves
-  const handleMouseEnter = useCallback(() => {
-    if (measurementRef.current) {
+  const handleMouseEnter = useCallback((event: React.PointerEvent) => {
+    if (event.pointerType === 'mouse' && measurementRef.current) {
       cachedRect.current = measurementRef.current.getBoundingClientRect()
     }
   }, [])
 
   // Use cached bounds for all mousemove calculations
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType !== 'mouse') return
     const rect = cachedRect.current
     if (!rect) return
 
-    const x = (e.clientX - rect.left) / rect.width - 0.5
-    const y = (e.clientY - rect.top) / rect.height - 0.5
+    const x = Math.max(-0.5, Math.min(0.5, (e.clientX - rect.left) / rect.width - 0.5))
+    const y = Math.max(-0.5, Math.min(0.5, (e.clientY - rect.top) / rect.height - 0.5))
     mouseX.set(x)
     mouseY.set(y)
   }, [mouseX, mouseY])
@@ -71,17 +73,30 @@ export function PointerParallax({
     cachedRect.current = null
   }, [mouseX, mouseY])
 
-  if (prefersReduced) {
-    return <div className={className}>{children}</div>
+  useEffect(() => {
+    // Invalidate stale bounds without reading layout during scrolling/movement.
+    window.addEventListener('scroll', handleMouseLeave, true)
+    window.addEventListener('resize', handleMouseLeave)
+    handleMouseLeave()
+    return () => {
+      window.removeEventListener('scroll', handleMouseLeave, true)
+      window.removeEventListener('resize', handleMouseLeave)
+    }
+  }, [profile, handleMouseLeave])
+
+  if (profile !== 'full') {
+    return <div className={className} data-parallax="off">{children}</div>
   }
 
   return (
     <div
       ref={measurementRef}
+      data-parallax="full"
       className={className}
-      onMouseEnter={handleMouseEnter}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
+      onPointerEnter={handleMouseEnter}
+      onPointerMove={handleMouseMove}
+      onPointerLeave={handleMouseLeave}
+      onPointerCancel={handleMouseLeave}
       style={{ overflow: 'hidden' }}
     >
       <motion.div

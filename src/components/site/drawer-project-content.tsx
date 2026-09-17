@@ -3,7 +3,8 @@
 import Image from 'next/image'
 import { motion } from 'motion/react'
 import { getStorageUrl } from '@/lib/utils'
-import type { ProjectWithMedia, ProjectMedia } from '@/lib/types'
+import { DrawerProjectGallery } from './drawer-project-gallery'
+import type { ProjectWithMedia } from '@/lib/types'
 
 type DrawerProjectContentProps = {
   project: ProjectWithMedia
@@ -76,7 +77,7 @@ export function DrawerProjectContent({
           transition={{ duration: 0.5, delay: 0.1 }}
           className="mb-8 md:mb-12"
         >
-          <div className="relative overflow-hidden bg-surface">
+          <div data-media-id={cover.id} className="relative overflow-hidden bg-surface">
             <Image
               src={getStorageUrl(cover.storage_path)}
               alt={cover.alt_text || `${project.title} — cover`}
@@ -164,39 +165,13 @@ export function DrawerProjectContent({
           <span className="text-label block mb-6">
             Dokumentasi Visual ({galleryImages.length} Foto)
           </span>
-          <div className="space-y-6">
-            {galleryImages.map((img: ProjectMedia, index: number) => (
-              <motion.div
-                key={img.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.4, delay: 0.1 + index * 0.05 }}
-              >
-                <div className="relative overflow-hidden bg-surface">
-                  <Image
-                    src={getStorageUrl(img.storage_path)}
-                    alt={img.alt_text || `${project.title} — gambar ${index + 1}`}
-                    width={img.width || 1200}
-                    height={img.height || 800}
-                    className="w-full h-auto block"
-                    sizes="(max-width: 768px) 100vw, 75vw"
-                    loading="lazy"
-                  />
-                </div>
-                {img.caption && (
-                  <p className="text-xs text-muted mt-2 tracking-wide font-mono">
-                    {img.caption}
-                  </p>
-                )}
-              </motion.div>
-            ))}
-          </div>
+          <DrawerProjectGallery images={galleryImages} title={project.title} />
         </div>
       )}
 
       {/* Adjacent Navigation — swap project in drawer, don't navigate */}
       {adjacentProjects && (adjacentProjects.prev || adjacentProjects.next) && (
-        <div className="border-t border-border pt-8 mt-8">
+        <div data-testid="adjacent-projects" className="border-t border-border pt-8 mt-8">
           <div className="flex items-center justify-between gap-4">
             {adjacentProjects.prev ? (
               <button

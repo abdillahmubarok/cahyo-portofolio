@@ -18,7 +18,7 @@ export async function getPublishedProjects(): Promise<ProjectWithCover[]> {
 
   if (error) {
     console.error('getPublishedProjects error:', error)
-    return []
+    throw new Error('Gagal memuat data portofolio.')
   }
 
   return (data ?? []).map((p: ProjectWithMedia) => ({
@@ -40,7 +40,7 @@ export async function getFeaturedProjects(): Promise<ProjectWithCover[]> {
 
   if (error) {
     console.error('getFeaturedProjects error:', error)
-    return []
+    throw new Error('Gagal memuat data portofolio.')
   }
 
   return (data ?? []).map((p: ProjectWithMedia) => ({
@@ -60,7 +60,7 @@ export async function getProjectBySlug(slug: string): Promise<ProjectWithMedia |
 
   if (error) {
     console.error('Database query error in getProjectBySlug:', error)
-    throw new Error(`Gagal memuat proyek dari database: ${error.message}`)
+    throw new Error('Gagal memuat proyek.')
   }
   if (!data) return null
 
@@ -153,11 +153,12 @@ export async function getNextProject(currentSlug: string): Promise<Pick<Project,
 
 export async function getPublishedProjectSlugs(): Promise<string[]> {
   const supabase = createPublicClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('projects')
     .select('slug')
     .eq('published', true)
 
+  if (error) { console.error('getPublishedProjectSlugs:', error); throw new Error('Gagal memuat proyek.') }
   return (data ?? []).map(p => p.slug)
 }
 
@@ -167,12 +168,13 @@ export async function getPublishedProjectSlugs(): Promise<string[]> {
 
 export const getSiteSettings = cache(async (): Promise<SiteSettings | null> => {
   const supabase = createPublicClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('site_settings')
     .select('*')
     .eq('id', 1)
-    .single()
+    .maybeSingle()
 
+  if (error) { console.error('getSiteSettings:', error); throw new Error('Gagal memuat pengaturan situs.') }
   return data
 })
 
@@ -191,7 +193,7 @@ export async function getPublishedProjectsWithMedia(): Promise<ProjectWithMedia[
 
   if (error) {
     console.error('getPublishedProjectsWithMedia error:', error)
-    return []
+    throw new Error('Gagal memuat data portofolio.')
   }
 
   return (data ?? []).map((p: ProjectWithMedia) => ({
@@ -209,11 +211,12 @@ export async function getPublishedProjectsWithMedia(): Promise<ProjectWithMedia[
 
 export async function getServices(): Promise<Service[]> {
   const supabase = createPublicClient()
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('services')
     .select('*')
     .order('sort_order', { ascending: true })
 
+  if (error) { console.error('getServices:', error); throw new Error('Gagal memuat layanan.') }
   return data ?? []
 }
 
