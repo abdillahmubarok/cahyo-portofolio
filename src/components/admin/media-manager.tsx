@@ -4,7 +4,7 @@ import { useState, useRef } from 'react'
 import Image from 'next/image'
 import { createClient } from '@/lib/supabase/client'
 import { getStorageUrl, generateStoragePath } from '@/lib/utils'
-import { deleteMedia, setCoverImage, updateMediaAlt } from '@/app/actions'
+import { deleteMedia, setCoverImage, updateMediaAlt, registerProjectMedia } from '@/app/actions'
 import { Upload, Star, Trash2, X, Loader2 } from 'lucide-react'
 import type { ProjectWithMedia, ProjectMedia } from '@/lib/types'
 import { useRouter } from 'next/navigation'
@@ -48,8 +48,7 @@ export function MediaManager({ project }: Props) {
 
       const isFirstMedia = project.project_media.length === 0 && i === 0
 
-      await supabase.from('project_media').insert({
-        project_id: project.id,
+      await registerProjectMedia(project.id, {
         storage_path: storagePath,
         width: dimensions.width,
         height: dimensions.height,

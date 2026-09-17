@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
-import { getSiteSettings, getFeaturedProjects, getServices, getPublishedProjects } from '@/lib/queries'
+import { getSiteSettings, getServices, getPublishedProjects } from '@/lib/queries'
 import { ProjectCard } from '@/components/site/project-card'
 import { HeroSection } from '@/components/site/hero-section'
 import { RevealText, FadeIn, StaggerContainer, StaggerItem } from '@/components/motion/reveal'
@@ -9,14 +9,14 @@ import { ServiceIcon } from '@/components/site/service-icon'
 export const revalidate = 60
 
 export default async function HomePage() {
-  const [settings, featuredProjects, allProjects, services] = await Promise.all([
+  const [settings, allProjects, services] = await Promise.all([
     getSiteSettings(),
-    getFeaturedProjects(),
     getPublishedProjects(),
     getServices(),
   ])
 
-  const displayProjects = featuredProjects.length > 0 ? featuredProjects : allProjects.slice(0, 6)
+  const featured = allProjects.filter(p => p.featured).slice(0, 6)
+  const displayProjects = featured.length > 0 ? featured : allProjects.slice(0, 6)
 
   return (
     <>

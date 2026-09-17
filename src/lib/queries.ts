@@ -78,39 +78,47 @@ export type AdjacentProject = Pick<Project, 'title' | 'slug' | 'category'> & {
   coverUrl?: string | null
 }
 
-export async function getAdjacentProjects(currentSlug: string): Promise<{
+export async function getAdjacentProjects(
+  currentSlug: string,
+  knownSortOrder?: number
+): Promise<{
   prev: AdjacentProject | null
   next: AdjacentProject | null
 }> {
   const supabase = createPublicClient()
-  const { data: current } = await supabase
-    .from('projects')
-    .select('sort_order')
-    .eq('slug', currentSlug)
-    .eq('published', true)
-    .maybeSingle()
 
-  if (!current) return { prev: null, next: null }
+  let sortOrder = knownSortOrder
+  if (sortOrder === undefined) {
+    const { data: current } = await supabase
+      .from('projects')
+      .select('sort_order')
+      .eq('slug', currentSlug)
+      .eq('published', true)
+      .maybeSingle()
 
-  // Next project: first published project with greater sort_order
-  const { data: next } = await supabase
-    .from('projects')
-    .select('title, slug, category, project_media(storage_path, is_cover)')
-    .eq('published', true)
-    .gt('sort_order', current.sort_order)
-    .order('sort_order', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+    if (!current) return { prev: null, next: null }
+    sortOrder = current.sort_order
+  }
 
-  // Previous project: last published project with lesser sort_order
-  const { data: prev } = await supabase
-    .from('projects')
-    .select('title, slug, category, project_media(storage_path, is_cover)')
-    .eq('published', true)
-    .lt('sort_order', current.sort_order)
-    .order('sort_order', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  // Next and Previous projects queried concurrently
+  const [{ data: next }, { data: prev }] = await Promise.all([
+    supabase
+      .from('projects')
+      .select('title, slug, category, project_media(storage_path, is_cover)')
+      .eq('published', true)
+      .gt('sort_order', sortOrder)
+      .order('sort_order', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('projects')
+      .select('title, slug, category, project_media(storage_path, is_cover)')
+      .eq('published', true)
+      .lt('sort_order', sortOrder)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
 
   type AdjacentRaw = {
     title: string

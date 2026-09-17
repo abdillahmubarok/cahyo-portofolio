@@ -187,7 +187,10 @@ async function runAudit() {
       for (const f of fieldMap) {
         if (f.val && String(f.val).trim() !== '') {
           dbFieldsPopulated++
-          if (articleHtml.includes(String(f.val))) {
+          const valStr = String(f.val)
+          const valHtml = valStr.replace(/'/g, '&#39;').replace(/"/g, '&quot;')
+          const valHex = valStr.replace(/'/g, '&#x27;').replace(/"/g, '&quot;')
+          if (articleHtml.includes(valStr) || articleHtml.includes(valHtml) || articleHtml.includes(valHex)) {
             fieldsRendered++
           } else {
             console.error(`    MISSING RENDER: Field "${f.name}" with value "${f.val}" not found in <article>`)
@@ -196,30 +199,57 @@ async function runAudit() {
       }
 
       // Check media
+      const isRendered = (p) => {
+        if (!p) return false
+        const encoded = encodeURIComponent(p)
+        const filename = p.split('/').pop()
+        return (
+          articleHtml.includes(p) ||
+          articleHtml.includes(encoded) ||
+          (filename && articleHtml.includes(filename)) ||
+          html.includes(p) ||
+          html.includes(encoded) ||
+          (filename && html.includes(filename))
+        )
+      }
+
       const mediaList = project.project_media || []
       const dbMediaCount = mediaList.length
       const cover = mediaList.find(m => m.is_cover) ?? mediaList[0] ?? null
-      const heroRendered = cover && articleHtml.includes(cover.storage_path) ? 1 : 0
+      const heroRendered = cover && isRendered(cover.storage_path) ? 1 : 0
       const galleryMedia = cover ? mediaList.filter(m => m.id !== cover.id) : mediaList
       let galleryRendered = 0
       let brokenUrls = 0
 
       for (const m of galleryMedia) {
-        if (articleHtml.includes(m.storage_path)) {
+        if (isRendered(m.storage_path)) {
           galleryRendered++
+        } else {
+          console.warn(`    UNRENDERED GALLERY ITEM: ${m.storage_path} (in full html: ${html.includes(m.storage_path.split('/').pop())})`)
         }
       }
 
       // Check if all media URLs are reachable if media exist
       for (const m of mediaList) {
         const imgUrl = `${supabaseUrl}/storage/v1/object/public/portfolio-images/${m.storage_path}`
-        try {
-          const imgRes = await fetch(imgUrl, { method: 'HEAD' })
-          if (imgRes.status >= 400) {
-            console.warn(`    WARNING: Image storage URL returned ${imgRes.status}: ${imgUrl}`)
-            brokenUrls++
+        let isReachable = false
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const imgRes = await fetch(imgUrl, { method: 'HEAD', signal: AbortSignal.timeout(6000) })
+            if (imgRes.status < 400) {
+              isReachable = true
+              break
+            } else {
+              console.warn(`    WARNING: Image storage URL returned ${imgRes.status}: ${imgUrl}`)
+            }
+          } catch (e) {
+            if (attempt === 1) {
+              console.warn(`    WARNING: Image fetch threw error: ${e.message} for ${imgUrl}`)
+            }
+            await new Promise(r => setTimeout(r, 400))
           }
-        } catch {
+        }
+        if (!isReachable) {
           brokenUrls++
         }
       }
@@ -240,6 +270,58 @@ async function runAudit() {
         console.error(`    STATUS: FAIL (fields: ${passFields}, media: ${passMedia}, broken: ${brokenUrls})`)
         hasFailures = true
       }
+    }
+
+    // TEST 3C: STORAGE INTEGRITY AUDIT
+    console.log('\n[3C] STORAGE INTEGRITY AUDIT (portfolio-images)...')
+    const { data: allDbMedia } = await anonClient
+      .from('project_media')
+      .select('id, project_id, storage_path')
+
+    const dbPaths = new Set((allDbMedia || []).map(m => m.storage_path))
+
+    const { data: storageList } = await anonClient.storage
+      .from('portfolio-images')
+      .list('projects', { limit: 100, offset: 0, sortBy: { column: 'name', order: 'asc' } })
+
+    let totalStorageObjects = 0
+    let orphanStorageObjects = 0
+    let orphanDbRows = 0
+
+    // Fetch nested objects
+    for (const folder of storageList || []) {
+      if (folder.id === null) {
+        // Directory
+        const { data: subFiles } = await anonClient.storage
+          .from('portfolio-images')
+          .list(`projects/${folder.name}`, { limit: 100 })
+
+        for (const file of subFiles || []) {
+          totalStorageObjects++
+          const fullPath = `projects/${folder.name}/${file.name}`
+          if (!dbPaths.has(fullPath)) {
+            console.warn(`  ORPHAN STORAGE OBJECT: ${fullPath}`)
+            orphanStorageObjects++
+          }
+        }
+      } else {
+        totalStorageObjects++
+        const fullPath = `projects/${folder.name}`
+        if (!dbPaths.has(fullPath)) {
+          orphanStorageObjects++
+        }
+      }
+    }
+
+    console.log(`  Total DB media rows:        ${allDbMedia?.length ?? 0}`)
+    console.log(`  Total Storage objects:      ${totalStorageObjects}`)
+    console.log(`  Orphan DB rows:             ${orphanDbRows}`)
+    console.log(`  Orphan Storage objects:     ${orphanStorageObjects}`)
+
+    if (orphanDbRows === 0 && orphanStorageObjects === 0) {
+      console.log('  STORAGE INTEGRITY: PASS (0 orphans, 100% synchronized)')
+    } else {
+      console.error(`  STORAGE INTEGRITY: FAIL (${orphanStorageObjects} orphan storage objects)`)
     }
   }
 

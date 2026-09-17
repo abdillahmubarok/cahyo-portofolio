@@ -48,7 +48,7 @@ export default async function ProjectDetailPage({ params }: Props) {
   const project = await getProjectBySlug(slug)
   if (!project) notFound()
 
-  const { prev: prevProject, next: nextProject } = await getAdjacentProjects(slug)
+  const { prev: prevProject, next: nextProject } = await getAdjacentProjects(slug, project.sort_order)
 
   // Primary cover image (with fallback to first media if is_cover not set)
   const cover = project.project_media?.find(m => m.is_cover) ?? project.project_media?.[0] ?? null

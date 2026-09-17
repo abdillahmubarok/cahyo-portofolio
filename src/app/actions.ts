@@ -258,6 +258,52 @@ export async function toggleProjectPublished(projectId: string, published: boole
 // Admin: Media
 // ========================
 
+export async function registerProjectMedia(
+  projectId: string,
+  mediaData: {
+    storage_path: string
+    width?: number | null
+    height?: number | null
+    aspect_ratio?: number | null
+    sort_order: number
+    is_cover: boolean
+  }
+) {
+  await getAuthenticatedAdmin()
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .from('project_media')
+    .insert({
+      project_id: projectId,
+      storage_path: mediaData.storage_path,
+      width: mediaData.width,
+      height: mediaData.height,
+      aspect_ratio: mediaData.aspect_ratio,
+      sort_order: mediaData.sort_order,
+      is_cover: mediaData.is_cover,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(error.message)
+
+  const { data: project } = await supabase
+    .from('projects')
+    .select('slug')
+    .eq('id', projectId)
+    .maybeSingle()
+
+  if (project?.slug) {
+    revalidatePath(`/projects/${project.slug}`)
+  }
+  revalidatePath('/')
+  revalidatePath('/projects')
+  revalidatePath(`/admin/projects/${projectId}/edit`)
+
+  return data
+}
+
 export async function deleteMedia(mediaId: string, storagePath: string) {
   await getAuthenticatedAdmin()
   const supabase = await createClient()
@@ -358,6 +404,26 @@ export async function updateMediaOrder(items: { id: string; sort_order: number }
       .from('project_media')
       .update({ sort_order: item.sort_order })
       .eq('id', item.id)
+  }
+
+  if (items.length > 0) {
+    const { data: media } = await supabase
+      .from('project_media')
+      .select('project_id')
+      .eq('id', items[0].id)
+      .maybeSingle()
+
+    if (media?.project_id) {
+      const { data: project } = await supabase
+        .from('projects')
+        .select('slug')
+        .eq('id', media.project_id)
+        .maybeSingle()
+
+      if (project?.slug) {
+        revalidatePath(`/projects/${project.slug}`)
+      }
+    }
   }
 
   revalidatePath('/')
